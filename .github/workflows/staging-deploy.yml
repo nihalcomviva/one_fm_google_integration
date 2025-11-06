@@ -1,0 +1,61 @@
+name: CI/CD Pipeline for Staging
+
+on:
+  push:
+    branches:
+      - staging     # Runs pipeline only when code is pushed to 'staging' branch
+
+jobs:
+  test-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+
+    - name: Install Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt || echo "No requirements.txt file found"
+
+    - name: Run Unit Tests
+      run: |
+        if [ -d "tests" ]; then
+          pytest --maxfail=1 --disable-warnings -q
+        else
+          echo "No tests directory found, skipping tests"
+        fi
+
+    - name: Deploy to Staging Server
+      if: success()
+      uses: appleboy/ssh-action@v0.1.5
+      with:
+        host: ${{ secrets.STAGING_SERVER_IP }}
+        username: ${{ secrets.STAGING_SERVER_USER }}
+        key: ${{ secrets.STAGING_SERVER_SSH_KEY }}
+        script: |
+          cd /home/ubuntu/one_fm_google_integration || git clone https://github.com/nihalcomviva/one_fm_google_integration.git
+          cd one_fm_google_integration
+          git pull origin staging
+          sudo systemctl restart app || echo "manual restart required"
+
+    - name: Send Notification Email
+      if: always()
+      uses: dawidd6/action-send-mail@v3
+      with:
+        server_address: smtp.gmail.com
+        server_port: 587
+        username: ${{ secrets.EMAIL_USER }}
+        password: ${{ secrets.EMAIL_PASS }}
+        subject: "CI/CD Pipeline Status: ${{ job.status }}"
+        to: yourteam@example.com
+        from: "CI Pipeline <${{ secrets.EMAIL_USER }}>"
+        body: |
+          CI/CD Pipeline finished with status: ${{ job.status }}
+          Commit by: ${{ github.actor }}
+          Repository: ${{ github.repository }}
